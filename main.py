@@ -4,7 +4,7 @@
 #
 # Author: Dave Hoatlin
 
-import sys, os, signal
+import sys, os, signal, threading
 
 class Customer:
 	arrival = 0
@@ -35,13 +35,15 @@ class TimeKeeper:
 	def __init__(self):
 		signal.signal(signal.SIGALRM, self.handle)
 		signal.setitimer(signal.ITIMER_REAL, 1, 1)
-		self.run()
 		
 	def run(self):
 		while(True):
 			a = True
 	
 class Barber:
+	def __init__(self):
+		print 'barber created'
+		
 	def run(self):
 		time = 0
 		#wait for chair to be occupied(semaphore for chairs)
@@ -66,7 +68,7 @@ def spawnCustomers(fileName):
 			if(pid == 0):
 				cust = Customer(values[0], values[1][:-1], count)
 				cust.run()
-				return
+				exit()
 			count += 1
 		#here i want to start a thread using values
 		#startCust(values[0], values[1])
@@ -74,13 +76,19 @@ def spawnCustomers(fileName):
 def spawnBarbers(totalBarbers):
 	count = 0
 	while (count < totalBarbers):
-		print 'barber spawned'
+		pid = os.fork()
+		if(pid == 0):
+			barber = Barber()
+			barber.run()
+			exit()
 		count += 1
 
 def startTimer():
 	pid = os.fork()
 	if(pid == 0):
 		timer = TimeKeeper()
+		timer.run()
+		exit()
 	else:
 		print 'timer created'
 	
@@ -115,16 +123,27 @@ def handleCommands(args):
 		sys.exit()
 	return {'barbers':barbers, 'chairs':chairs, 'waitingRoom':waitingRoom, 'inputFile':inputFile}	
 
+def createSemaphores(barbers, chairs, waitingRoom):
+	barberSem = threading.BoundedSemaphore(barbers)
+	chairSem = threading.BoundedSemaphore(chairs)
+	waitingRoomSem = threading.BoundedSemaphore(waitingRoom)
+	return {'barber':barberSem, 'chair':chairSem, 'waitingRoom':waitingRoomSem}
+
 def main():
-	#starting the program
+	#interpreting command line args
 	args = sys.argv
 	commands = handleCommands(args)
-	spawnBarbers(int(commands['barbers']))
+	
+	#creating semaphores
+	semaphores = createSemaphores(commands['barbers'], commands['chairs'], commands['waitingRoom'])
+	
 	print 'making', commands['barbers'], 'barbers'
 	print 'making', commands['chairs'], 'chairs'
-	print 'making waiting room with size', commands['waitingRoom'] 
+	print 'making waiting room with size', commands['waitingRoom']
+	
+	spawnBarbers(int(commands['barbers']))
 	#spawnCustomers('fairIn.txt')
-	startTimer()
+	#startTimer()
 	while True:
 		a = True
 	
