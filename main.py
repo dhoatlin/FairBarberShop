@@ -17,6 +17,9 @@ customers = []
 waitRoomCusts = []
 chairCusts = []
 
+#global dict containing color attributes
+textColors = {}
+
 class Customer(Thread):
 	arrival = 0
 	cutTime = 0
@@ -28,7 +31,7 @@ class Customer(Thread):
 		self.arrival = arrival
 		self.cutTime = cutTime
 		self.id = id
-		self.wakeupSem = timeKeeper.wakeup(arrival)
+		self.wakeupSem = timeKeeper.wakeup(int(arrival))
 		
 		#tell the timeKeeper when to wake this customer
 		
@@ -45,6 +48,11 @@ class Customer(Thread):
 		waitRoomCusts.append(self)
 		print 'customer:', self.id, 'in waiting room'
 		
+		#wait to be in the front of the line for a waiting room chair
+		while True:
+			if(waitRoomCusts[0] == self):
+				break
+		
 		#wait for a chair to be available
 		semaphores['chair'].acquire()
 		semaphores['waitingRoom'].release()
@@ -52,13 +60,21 @@ class Customer(Thread):
 		chairCusts.append(self)
 		print 'customer:', self.id, 'in waiting chair'
 		
+		
+		
+		#wait to be next in line
+		while True:
+			if(chairCusts[0] == self):
+				break
+			
 		#take barber chair
 		semaphores['barber'].acquire()
-		
-		#ready for haircut
 		semaphores['ready'].release()
 		semaphores['chair'].release()
-		
+		print 'customer:', self.id, 'in barber chair'
+		semaphores['finish'][self.id].acquire()
+		print 'customer:', self.id, 'left barber chair'
+		semaphores['barber'].release()
 
 		#enter chair (semaphore for chairs) signal waitroom semaphore
 		#cut hair (semaphore for barbers) signal chair semaphore
@@ -71,6 +87,7 @@ class Customer(Thread):
 class TimeKeeper(Thread):
 	time = 0
 	waitRequests = []
+	waitRequestsSem = threading.Semaphore(1)
 
 	def __init__(self):
 		Thread.__init__(self)
@@ -80,15 +97,16 @@ class TimeKeeper(Thread):
 	def handle(self, signum, _):
 		if(signum == 14): #14 is int value of SIGALRM
 			self.time += 1
-			#if there are requests waiting check if its for current time
+			print self.time
+			#if there are requests waiting check incremenet timeElapsed
 			if(self.waitRequests):
+				self.waitRequestsSem.acquire()
 				for request in self.waitRequests:
-					if(request[0] == self.time):
-						print self.waitRequests[0][0]
-						self.waitRequests[0][1].release() #signal customer
-						self.waitRequests.pop(0) #remove request from list
-					else:
-						break
+					request[1] += 1 #increment timeElapsed
+					if(request[1] >= request[2]): #if timeElapsed surpases delay
+						request[3].release()
+						self.waitRequests.pop(0) #remove request
+				self.waitRequestsSem.release()
 
 	def run(self):
 		while(True):
@@ -97,10 +115,14 @@ class TimeKeeper(Thread):
 	#add a process to the wakeup list and return the unique semaphore
 	def wakeup(self, delay):
 		waitSem = threading.Semaphore(0)
-		wakeTime = self.time + int(delay)
-
-		self.waitRequests.append((wakeTime, waitSem))
+		timeElapsed = 0
+		wakeTime = int(delay) + self.time
+		
+		#add to request list
+		self.waitRequestsSem.acquire()
+		self.waitRequests.append([wakeTime, timeElapsed, delay, waitSem])
 		self.waitRequests.sort() #sorting by wakeup time
+		self.waitRequestsSem.release()
 		return waitSem
 	
 class Barber(Thread):
@@ -118,9 +140,11 @@ class Barber(Thread):
 			
 			#delay for the duration of the cut
 			print 'cutting hair'
-			cutSem = self.timeKeeper.wakeup(cust.arrival)
+			cutSem = self.timeKeeper.wakeup(cust.cutTime)
 			cutSem.acquire()
 			print 'done cutting hair'
+			cutSem.release()
+			semaphores['finish'][cust.id].release()
 		
 		
 	
@@ -130,22 +154,15 @@ class Cashier(Thread):
 	
 	def run(self):
 		time = 0
+		
 
-def spawnCustomers(fileName, timeKeeper):
-	f = open(fileName)
-	checkFirst = False
+def spawnCustomers(custData, timeKeeper):
 	count = 0
-	for line in f:
-		values = line.split(' ')
-		if not checkFirst:
-			totalCustomers = values[0]
-			print 'Total customers: ', values[0][:-1] #[:-1] to ignore newline character
-			checkFirst = True
-		else:
-			cust = Customer(values[0], values[1][:-1], count, timeKeeper)
-			cust.start()
-			count += 1
-
+	for customer in custData:
+		cust = Customer(customer[0], customer[1], count, timeKeeper)
+		cust.start()
+		count += 1
+	
 def spawnBarbers(totalBarbers, timeKeeper):
 	count = 0
 	while (count < totalBarbers):
@@ -185,12 +202,33 @@ def handleCommands(args):
 		sys.exit()
 	return {'barbers':barbers, 'chairs':chairs, 'waitingRoom':waitingRoom, 'inputFile':inputFile}	
 
-def createSemaphores(barbers, chairs, waitingRoom):
+def createSemaphores(barbers, chairs, waitingRoom, totalCustomers):
 	barberSem = threading.BoundedSemaphore(barbers)
 	chairSem = threading.BoundedSemaphore(chairs)
 	waitingRoomSem = threading.BoundedSemaphore(waitingRoom)
 	readySem = threading.Semaphore(0)
-	return {'barber':barberSem, 'chair':chairSem, 'waitingRoom':waitingRoomSem, 'ready':readySem}
+	finishSems = []
+	count = 0
+	while count < int(totalCustomers):
+		finishSems.append(threading.Semaphore(0))
+		count += 1
+	return {'barber':barberSem, 'chair':chairSem, 'waitingRoom':waitingRoomSem, 'ready':readySem,
+			'finish':finishSems}
+
+def parseInput(filename):
+	f = open(filename)
+	checkFirst = False
+	customerData = []
+	totalCustomers = 0
+	for line in f:
+		values = line.split(' ')
+		if not checkFirst:
+			totalCustomers = values[0][:-1] #[:-1] to ignore newline character
+			print 'Total customers: ', totalCustomers 
+			checkFirst = True
+		else:
+			customerData.append((values[0], values[1][:-1]))
+	return totalCustomers, customerData
 
 def main():
 	global semaphores
@@ -198,12 +236,16 @@ def main():
 	args = sys.argv
 	commands = handleCommands(args)
 	
+	inputs = parseInput('fairIn.txt')
+	
 	#creating semaphores
-	semaphores = createSemaphores(commands['barbers'], commands['chairs'], commands['waitingRoom'])
+	semaphores = createSemaphores(commands['barbers'], commands['chairs'], commands['waitingRoom'], inputs[0])
 	
 	timer = startTimer()
 	spawnBarbers(int(commands['barbers']), timer)
-	spawnCustomers('fairIn.txt', timer)
+	
+	spawnCustomers(inputs[1], timer)
+	
 	while True:
 		a = True
 	
