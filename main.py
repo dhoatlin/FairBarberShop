@@ -34,27 +34,32 @@ class Customer(Thread):
 		
 		
 	def run(self):
-		#global semaphores
+		global semaphores, waitRoomCusts, chairCusts
 		#print 'running customer:', self.id, 'with arrival time:', self.arrival, 'and cut time:', self.cutTime
 		
 		#set wakeup time and wait until then
 		self.wakeupSem.acquire()
 		print 'customer:', self.id, 'woken up'
-		
-		'''
 		#enter barbershop (semaphore for waitroom)
 		semaphores['waitingRoom'].acquire()
-		waitRoomCusts.append(id)
-		print 'customer:', id, 'in waiting room'
+		waitRoomCusts.append(self)
+		print 'customer:', self.id, 'in waiting room'
 		
 		#wait for a chair to be available
 		semaphores['chair'].acquire()
-		sempahores['waitingRoom'].release()
+		semaphores['waitingRoom'].release()
 		waitRoomCusts.pop(0)
-		chairs.append(id)
-		print 'customer:', id, 'in waiting chair'
+		chairCusts.append(self)
+		print 'customer:', self.id, 'in waiting chair'
+		
+		#take barber chair
+		semaphores['barber'].acquire()
+		
+		#ready for haircut
+		semaphores['ready'].release()
 		semaphores['chair'].release()
-		'''
+		
+
 		#enter chair (semaphore for chairs) signal waitroom semaphore
 		#cut hair (semaphore for barbers) signal chair semaphore
 		#pay (semaphore for cashier) signal barber semaphore
@@ -75,43 +80,48 @@ class TimeKeeper(Thread):
 	def handle(self, signum, _):
 		if(signum == 14): #14 is int value of SIGALRM
 			self.time += 1
-			#print self.time
+			#if there are requests waiting check if its for current time
 			if(self.waitRequests):
-				
-				if(int(self.waitRequests[0][0]) == int(self.time)):
-					print self.waitRequests[0][0]
-					self.waitRequests[0][1].release() #signal customer
-					self.waitRequests.pop(0) #remove customer from list
+				for request in self.waitRequests:
+					if(request[0] == self.time):
+						print self.waitRequests[0][0]
+						self.waitRequests[0][1].release() #signal customer
+						self.waitRequests.pop(0) #remove request from list
+					else:
+						break
 
 	def run(self):
 		while(True):
 			a = True
 			
 	#add a process to the wakeup list and return the unique semaphore
-	def wakeup(self, time):
-		waitSem = threading.BoundedSemaphore(1)
-		
-		'''-----------------------
-		An awful hack to get the semaphore working...
-		
-		basically decrementing the semaphore's counter so when acquire is called
-		again the thread will be blocked
-		-----------------------'''
-		waitSem.acquire()
-		
-		self.waitRequests.append((time, waitSem))
+	def wakeup(self, delay):
+		waitSem = threading.Semaphore(0)
+		wakeTime = self.time + int(delay)
+
+		self.waitRequests.append((wakeTime, waitSem))
 		self.waitRequests.sort() #sorting by wakeup time
 		return waitSem
 	
 class Barber(Thread):
-	def __init__(self):
+	timeKeeper = 0
+	def __init__(self, timeKeeper):
 		Thread.__init__(self)
-		
+		self.timeKeeper = timeKeeper
 		
 	def run(self):
-		time = 0
-		print 'barber started'
-		#wait for chair to be occupied(semaphore for chairs)
+		global semaphores, chairCusts
+		while True:
+			#wait for a customer to be ready
+			semaphores['ready'].acquire()
+			cust = chairCusts.pop()
+			
+			#delay for the duration of the cut
+			print 'cutting hair'
+			cutSem = self.timeKeeper.wakeup(cust.arrival)
+			cutSem.acquire()
+			print 'done cutting hair'
+		
 		
 	
 class Cashier(Thread):
@@ -136,10 +146,10 @@ def spawnCustomers(fileName, timeKeeper):
 			cust.start()
 			count += 1
 
-def spawnBarbers(totalBarbers):
+def spawnBarbers(totalBarbers, timeKeeper):
 	count = 0
 	while (count < totalBarbers):
-		barber = Barber()
+		barber = Barber(timeKeeper)
 		barber.start()
 		count += 1
 
@@ -179,9 +189,11 @@ def createSemaphores(barbers, chairs, waitingRoom):
 	barberSem = threading.BoundedSemaphore(barbers)
 	chairSem = threading.BoundedSemaphore(chairs)
 	waitingRoomSem = threading.BoundedSemaphore(waitingRoom)
-	return {'barber':barberSem, 'chair':chairSem, 'waitingRoom':waitingRoomSem}
+	readySem = threading.Semaphore(0)
+	return {'barber':barberSem, 'chair':chairSem, 'waitingRoom':waitingRoomSem, 'ready':readySem}
 
 def main():
+	global semaphores
 	#interpreting command line args
 	args = sys.argv
 	commands = handleCommands(args)
@@ -189,13 +201,9 @@ def main():
 	#creating semaphores
 	semaphores = createSemaphores(commands['barbers'], commands['chairs'], commands['waitingRoom'])
 	
-	#print 'making', commands['barbers'], 'barbers'
-	#print 'making', commands['chairs'], 'chairs'
-	#print 'making waiting room with size', commands['waitingRoom']
-	
-	spawnBarbers(int(commands['barbers']))
 	timer = startTimer()
-	spawnCustomers('fairQuick.txt', timer)
+	spawnBarbers(int(commands['barbers']), timer)
+	spawnCustomers('fairIn.txt', timer)
 	while True:
 		a = True
 	
