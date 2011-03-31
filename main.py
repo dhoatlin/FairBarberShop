@@ -18,8 +18,6 @@ payCusts = []
 textColors = {'blue':'\033[1;34m', 'green':'\033[1;32m', 'yellow':'\033[1;33m',
 			  'reset':'\033[0m'}
 
-#track the number of remaining customers
-customersRemaining = 0
 
 class Customer(Thread):
 	arrival = 0
@@ -33,7 +31,7 @@ class Customer(Thread):
 		self.cutTime = cutTime
 		self.timeKeeper = timeKeeper
 		self.id = id
-		#self.wakeupSem = timeKeeper.wakeup(int(arrival))
+		self.wakeupSem = timeKeeper.wakeup(int(arrival))
 		
 	'''
 	| customer procedure as defined by Hilzer
@@ -72,8 +70,7 @@ class Customer(Thread):
 		global semaphores, barberCusts, payCusts, customersRemaining
 
 		#set wakeup time and wait until then
-		#self.wakeupSem.acquire()
-		time.sleep(int(self.arrival))
+		self.wakeupSem.acquire()
 		string = str(self.timeKeeper.time) + ': customer: ' + str(self.id) + ' arrives'
 		syncPrint('green', string)
 		
@@ -116,14 +113,9 @@ class Customer(Thread):
 		string = str(self.timeKeeper.time) + ': customer: ' + str(self.id) + ' has left the building'
 		syncPrint('green', string)
 		
-		semaphores['remain'].acquire()
-		customersRemaining -= 1
-		semaphores['remain'].release()
-		
 
 
 class TimeKeeper(Thread):
-	global customersRemaining
 	
 	time = 0
 	waitRequests = []
@@ -149,11 +141,7 @@ class TimeKeeper(Thread):
 
 	def run(self):
 		while(True):
-			if customersRemaining == 0:
-				print 'timer leaving'
-				break
-			#if(customersRemaining == 0):
-			#	break
+			continue #run forever
 			
 	#add a request to the wakeup list and return the unique semaphore
 	def wakeup(self, delay):
@@ -188,11 +176,8 @@ class Barber(Thread):
 		self.id = id
 		
 	def run(self):
-		global semaphores, barberCusts, customersRemaining
+		global semaphores, barberCusts
 		while True:
-			if customersRemaining == 0:
-				print 'barber leaving'
-				break
 			#wait for a customer to be ready
 			semaphores['ready'].acquire()
 			semaphores['queue1'].acquire()
@@ -233,12 +218,8 @@ class Cashier(Thread):
 		self.id = id
 	
 	def run(self):
-		global semaphores, payCusts, customersRemaining
+		global semaphores, payCusts
 		while True:
-			#check if customers are left
-			if customersRemaining <= 0:
-				print 'cashier leaving'
-				break
 			#wait for a customer
 			semaphores['cashier'].acquire()
 			semaphores['queue2'].acquire()
@@ -258,6 +239,7 @@ def spawnCustomers(custData, timeKeeper):
 	for customer in custData:
 		cust = Customer(customer[0], customer[1], count, timeKeeper)
 		customers.append(cust)
+		cust.setDaemon(True)
 		cust.start()
 		count += 1
 	return customers
@@ -268,6 +250,7 @@ def spawnBarbers(totalBarbers, timeKeeper):
 	while (count < totalBarbers):
 		barber = Barber(timeKeeper, count)
 		barbers.append(barber)
+		barber.setDaemon(True)
 		barber.start()
 		count += 1
 	return barbers
@@ -278,12 +261,14 @@ def spawnCashiers(totalCashiers, timeKeeper):
 	while(count < totalCashiers):
 		cashier = Cashier(timeKeeper, count)
 		cashiers.append(cashier)
+		cashier.setDaemon(True)
 		cashier.start()
 		count += 1
 	return cashiers
 
 def startTimer():
 	timer = TimeKeeper()
+	timer.setDaemon(True)
 	timer.start()
 	return timer
 	
@@ -383,24 +368,8 @@ def main():
 			if not thread.isAlive():
 				thread.join()
 				custThreads.remove(thread) #remove from pool of threads
-				
-	print 'waiting for barbers'
-	while len(barberThreads) > 0:
-		for thread in barberThreads:
-			if not thread.isAlive():
-				thread.join()
-				barberThreads.remove(thread)
-			
 	
-	print 'waiting for cashiers'
-	while len(cashierThreads) > 0:
-		for thread in cashierThreads:
-			if not thread.isAlive():
-				thread.join()
-				cashierThreads.remove(thread)
-	
-	print 'waiting for timer'
-	timer.join()
+
 if __name__ == '__main__':
 	main()
 	
