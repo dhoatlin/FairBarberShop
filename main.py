@@ -16,7 +16,7 @@ payCusts = []
 
 #global dict containing color attributes
 textColors = {'blue':'\033[1;34m', 'green':'\033[1;32m', 'yellow':'\033[1;33m',
-			  'reset':'\033[0m'}
+			  'red':'\033[1;31m', 'reset':'\033[0m'}
 
 '''
 Customer is an object that runs in its own thread. It will wait until its
@@ -363,12 +363,14 @@ def handleCommands(args):
 			sys.exit()
 	
 	#check that all commands were received, if not exit
-	if(barbers == False or chairs == False or waitingRoom == False or inputFile == False):
+	if(barbers == False or chairs == False or waitingRoom == False or
+	   inputFile == False):
 		print 'must have -b -c -w and -i options set'
 		sys.exit()
 		
 	#return dictionary of commands
-	return {'barbers':barbers, 'chairs':chairs, 'waitingRoom':waitingRoom, 'inputFile':inputFile}	
+	return {'barbers':barbers, 'chairs':chairs, 'waitingRoom':waitingRoom,
+			'inputFile':inputFile}	
 
 #create all the semaphores we will need
 def createSemaphores(barbers, chairs, waitingRoom, totalCustomers):
@@ -433,6 +435,8 @@ def main():
 	#globals specific to the file
 	global semaphores, customersRemaining
 	
+	
+	
 	#interpreting command line args
 	args = sys.argv
 	commands = handleCommands(args)
@@ -441,7 +445,10 @@ def main():
 	inputs = parseInput(commands['inputFile'])
 	
 	#creating semaphores
-	semaphores = createSemaphores(commands['barbers'], commands['chairs'], commands['waitingRoom'], inputs[0])
+	semaphores = createSemaphores(commands['barbers'], commands['chairs'],
+								  commands['waitingRoom'], inputs[0])
+	
+	syncPrint('red', 'The shop has opened for business.')
 	
 	#start the threads
 	timer = startTimer()
@@ -457,7 +464,7 @@ def main():
 				custThreads.remove(thread) #remove from pool of threads
 	
 	#remaining threads will terminate on their own because of the daemon feature
-	
+	syncPrint('red', 'The shop has closed.')
 
 #run main method if program started from command line
 if __name__ == '__main__':
