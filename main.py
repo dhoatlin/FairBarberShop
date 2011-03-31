@@ -151,7 +151,7 @@ class TimeKeeper(Thread):
 		
 		#add to request list
 		self.waitRequestsSem.acquire()
-		self.waitRequests.append([wakeTime, timeElapsed, delay, waitSem])
+		self.waitRequests.append([wakeTime, timeElapsed, int(delay), waitSem])
 		self.waitRequests.sort() #sorting by wakeup time
 		self.waitRequestsSem.release()
 		return waitSem
@@ -187,9 +187,8 @@ class Barber(Thread):
 			#cutting hair
 			string = str(self.timeKeeper.time) + ': barber: ' + str(self.id) + ' cutting hair'
 			syncPrint('yellow', string)
-			#cutSem = self.timeKeeper.wakeup(cust.cutTime)
-			#cutSem.acquire()
-			time.sleep(5)
+			cutSem = self.timeKeeper.wakeup(cust.cutTime)
+			cutSem.acquire()
 			string = str(self.timeKeeper.time) + ': barber: ' + str(self.id) + ' done cutting hair'
 			syncPrint('yellow', string)
 			
