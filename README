@@ -1,1 +1,9 @@
 Fair barber shop project for cs 452
+
+./main.py [args] to run
+
+args
+-b => number of barbers
+-c => number of waiting room chairs
+-w => size of waiting room
+-i => name of input file
