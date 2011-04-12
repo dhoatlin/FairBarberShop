@@ -85,24 +85,24 @@ class Customer(Thread):
 
 		#set wakeup time and wait until then
 		self.wakeupSem.acquire()
-		string = str(self.timeKeeper.time) + ': customer: ' + str(self.id) + ' arrives'
+		string = str(self.timeKeeper.time - 1) + ': customer: ' + str(self.id) + ' arrives'
 		syncPrint('green', string)
 		
 		#enter barbershop (semaphore for waitroom)
 		semaphores['waitingRoom'].acquire()
-		string = str(self.timeKeeper.time) + ': customer: ' + str(self.id) + ' enters the barbershop'
+		string = str(self.timeKeeper.time - 1) + ': customer: ' + str(self.id) + ' enters the barbershop'
 		syncPrint('green', string)
 		
 		#wait for a chair to be available
 		semaphores['chair'].acquire()
 		semaphores['waitingRoom'].release()
-		string = str(self.timeKeeper.time) + ': customer: ' + str(self.id) + ' sits in the waiting room'
+		string = str(self.timeKeeper.time - 1) + ': customer: ' + str(self.id) + ' sits in the waiting room'
 		syncPrint('green', string)
 		
 		#take barber chair
 		semaphores['barber'].acquire()
 		semaphores['chair'].release()
-		string = str(self.timeKeeper.time) + ': customer: ' + str(self.id) + ' in barber chair'
+		string = str(self.timeKeeper.time - 1) + ': customer: ' + str(self.id) + ' in barber chair'
 		syncPrint('green', string)
 		
 		#place in barber queue
@@ -114,7 +114,7 @@ class Customer(Thread):
 		#wait for haircut to finish
 		semaphores['finish'][self.id].acquire()
 		semaphores['leftBarber'][self.id].release()
-		string = str(self.timeKeeper.time) + ': customer: ' + str(self.id) + ' left barber chair'
+		string = str(self.timeKeeper.time - 1) + ': customer: ' + str(self.id) + ' left barber chair'
 		syncPrint('green', string)
 
 		#pay before leaving
@@ -125,7 +125,7 @@ class Customer(Thread):
 		semaphores['paid'][self.id].acquire()
 		
 		#leave the building and end the thread
-		string = str(self.timeKeeper.time) + ': customer: ' + str(self.id) + ' has left the building'
+		string = str(self.timeKeeper.time - 1) + ': customer: ' + str(self.id) + ' has left the building'
 		syncPrint('green', string)
 		
 
@@ -137,50 +137,64 @@ requests from the other threads and signals them when the delay time has
 expired
 '''
 class TimeKeeper(Thread):
-	#object specific globals
+	
 	time = 0
 	waitRequests = []
 	waitRequestsSem = threading.Semaphore(1)
+	waitSems = []
 
-	#initialize TimeKeeper
 	def __init__(self):
 		Thread.__init__(self)
 		signal.signal(signal.SIGALRM, self.handle)
 		signal.setitimer(signal.ITIMER_REAL, 1, 1)
-		
-	'''
-	handle the SIGALRM signal and increment the internal time.
-	if any pending waitrequests have expired, signal that semaphore
-	'''
+	
 	def handle(self, signum, _):
 		if(signum == signal.SIGALRM):
-			
+			self.time += 1
 			#if there are requests waiting check incremenet timeElapsed
 			if(self.waitRequests):
 				self.waitRequestsSem.acquire()
 				for request in self.waitRequests:
 					request[1] += 1 #increment timeElapsed
 					if(request[1] >= request[2]): #if timeElapsed surpases delay
-						request[3].release()
+						request[3][0].release()
+						request[3][1] = False
+						self.waitSems[request[3][2]][1] = False #waitSems[index][inUse] = false
 						self.waitRequests.remove(request) #remove request
 				self.waitRequestsSem.release()
-			self.time += 1
 
-	#when started, run forever
 	def run(self):
 		while(True):
 			continue #run forever
 			
 	#add a request to the wakeup list and return the unique semaphore
 	def wakeup(self, delay):
-		waitSem = threading.Semaphore(0)
 		timeElapsed = 0
 		wakeTime = int(delay) + self.time
 		
 		#add to request list
 		self.waitRequestsSem.acquire()
-		self.waitRequests.append([wakeTime, timeElapsed, int(delay), waitSem])
-		self.waitRequests.sort() #sorting by wakeup time
+		foundSem = False
+		
+		#if waitsSems is not empty
+		if(self.waitSems):
+			for sem in self.waitSems:
+				#if a semaphore is not in use, reuse it
+				if not sem[1]:
+					self.waitRequests.append([wakeTime, timeElapsed, int(delay), sem])
+					sem[1] = True
+					foundSem = True
+					waitSem = sem[0]
+					self.waitRequests.sort() #sorting by wakeup time
+					break #found a semaphore, so we can leave
+		
+		#if no free sems found or waitSems is empty	add a new sem	
+		if not foundSem or not self.waitSems:
+			self.waitSems.append([threading.Semaphore(0), True, len(self.waitSems) - 1]) #adding [sem, inUse, index]
+			self.waitRequests.append([wakeTime, timeElapsed, int(delay), self.waitSems[-1]])
+			waitSem = self.waitSems[-1][0]
+			self.waitRequests.sort()
+			
 		self.waitRequestsSem.release()
 		return waitSem
 '''
@@ -225,11 +239,11 @@ class Barber(Thread):
 			semaphores['queue1'].release()
 			
 			#cutting hair
-			string = str(self.timeKeeper.time) + ': barber: ' + str(self.id) + ' cutting hair'
+			string = str(self.timeKeeper.time - 1) + ': barber: ' + str(self.id) + ' cutting hair'
 			syncPrint('yellow', string)
 			cutSem = self.timeKeeper.wakeup(cust.cutTime)
 			cutSem.acquire()
-			string = str(self.timeKeeper.time) + ': barber: ' + str(self.id) + ' done cutting hair'
+			string = str(self.timeKeeper.time - 1) + ': barber: ' + str(self.id) + ' done cutting hair'
 			syncPrint('yellow', string)
 			
 			#wait for customer to leave
@@ -278,7 +292,7 @@ class Cashier(Thread):
 			semaphores['queue2'].release()
 			
 			#accept payment
-			string = str(self.timeKeeper.time) + ': cashier received payment from customer ' + str(cust.id)
+			string = str(self.timeKeeper.time - 1) + ': cashier received payment from customer ' + str(cust.id)
 			syncPrint('blue', string)
 			semaphores['paid'][cust.id].release()
 
@@ -440,8 +454,6 @@ def main():
 	#globals specific to the file
 	global semaphores, customersRemaining
 	
-	
-	
 	#interpreting command line args
 	args = sys.argv
 	commands = handleCommands(args)
@@ -474,9 +486,3 @@ def main():
 #run main method if program started from command line
 if __name__ == '__main__':
 	main()
-	
-		
-
-
-	
-
